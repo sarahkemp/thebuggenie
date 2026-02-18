@@ -608,7 +608,7 @@
                         $board = ($request['board_id']) ? entities\tables\AgileBoards::getTable()->selectById($request['board_id']) : new entities\AgileBoard();
                         $component = (isset($milestone) && $milestone instanceof \thebuggenie\core\entities\Milestone) ? 'milestoneissues' : 'backlog';
 
-                        return $this->renderJSON(array('content' => $this->getComponentHTML("agile/{$component}", compact('milestone', 'board'))));
+                        return $this->renderJSON(array('content' => $this->getComponentHTML("agile/{$component}", @compact('milestone', 'board'))));
                 }
             }
             catch (\Exception $e)
@@ -838,7 +838,7 @@
             \thebuggenie\core\framework\Context::loadLibrary('ui');
             $whiteboard_url = make_url('agile_whiteboardissues', array('project_key' => $board->getProject()->getKey(), 'board_id' => $board->getID()));
 
-            return $this->renderJSON(compact('ids', 'backlog_ids', 'epic_ids', 'milestone_id', 'whiteboard_url'));
+            return $this->renderJSON(@compact('ids', 'backlog_ids', 'epic_ids', 'milestone_id', 'whiteboard_url'));
         }
 
     }

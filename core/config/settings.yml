@@ -1,4 +1,4 @@
 core:
-    debug: true
-    log_file: ~
+    debug: false
+    log_file: "/var/www/bugs/thebuggenie.log"
     minified_assets: false

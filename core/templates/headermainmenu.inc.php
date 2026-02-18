@@ -45,9 +45,9 @@
                                     <li class="separator"></li>
                                 <?php endif; ?>
                             <?php endif; ?>
-                            <?php foreach ($saved_searches['public'] as $saved_search): ?>
-                                <li><?= link_tag(make_url('project_issues', array('saved_search' => $saved_search->getID(), 'search' => true)), fa_image_tag('search') . __($saved_search->getName())); ?></li>
-                            <?php endforeach; ?>
+                            <?php //foreach ($saved_searches['public'] as $saved_search): ?>
+                                <li><?//= link_tag(make_url('project_issues', array('saved_search' => $saved_search->getID(), 'search' => true)), fa_image_tag('search') . __($saved_search->getName())); ?></li>
+                            <?php //endforeach; ?>
                         <?php else: ?>
                             <li class="disabled"><?= __('You have no saved searches'); ?></li>
                         <?php endif; ?>

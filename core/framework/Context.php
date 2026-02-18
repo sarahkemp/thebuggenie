@@ -2550,7 +2550,8 @@ class Context
         // Set up error and exception handling
         set_exception_handler([self::class, 'exceptionHandler']);
         set_error_handler([self::class, 'errorHandler']);
-        error_reporting(E_ALL | E_NOTICE | E_STRICT);
+//        error_reporting(E_ALL | E_NOTICE | E_STRICT);
+	error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
 
         if (PHP_VERSION_ID < 70100)
             die('This software requires PHP 7.1.0 or newer. Please upgrade to a newer version of php to use The Bug Genie.');
