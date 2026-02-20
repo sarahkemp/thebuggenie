@@ -291,6 +291,7 @@ class Context
     {
         // Do not run the handler for suppressed errors. Normally this should be
         // only commands where supression is done via the @ operator.
+        //return false;
         if (error_reporting() === 0)
         {
             return false;
@@ -298,6 +299,12 @@ class Context
 
         if (self::isDebugMode())
             self::generateDebugInfo();
+
+        // Respect current error_reporting mask:
+        if (!(error_reporting() & $code)) {
+            // Let PHP’s standard flow handle it (i.e., ignore if masked out)
+            return false;
+        }
 
         if (self::getRequest() instanceof Request && self::getRequest()->isAjaxCall())
         {
@@ -2551,7 +2558,7 @@ class Context
         set_exception_handler([self::class, 'exceptionHandler']);
         set_error_handler([self::class, 'errorHandler']);
 //        error_reporting(E_ALL | E_NOTICE | E_STRICT);
-	error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
+	    error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
 
         if (PHP_VERSION_ID < 70100)
             die('This software requires PHP 7.1.0 or newer. Please upgrade to a newer version of php to use The Bug Genie.');
