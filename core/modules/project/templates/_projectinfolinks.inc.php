@@ -51,6 +51,10 @@
     <li><?php echo link_tag(make_url('project_timeline_important', array('project_key' => \thebuggenie\core\framework\Context::getCurrentProject()->getKey())), __('Timeline'), (($tbg_response->getPage() == 'project_timeline') ? array('class' => 'selected') : null)); ?></li>
     <?php \thebuggenie\core\framework\Event::createNew('core', 'project_sidebar_links_timeline')->trigger(array('submenu' => $submenu)); ?>
 <?php endif; ?>
+<?php if ($tbg_user->hasProjectPageAccess('project_timeline', $selected_project)): ?>
+    <li><?php echo link_tag(make_url('project_hours', array('project_key' => \thebuggenie\core\framework\Context::getCurrentProject()->getKey())), __('Hours'), (($tbg_response->getPage() == 'project_hours') ? array('class' => 'selected') : null)); ?></li>
+    <?php \thebuggenie\core\framework\Event::createNew('core', 'project_sidebar_links_hours')->trigger(array('submenu' => $submenu)); ?>
+<?php endif; ?>
 <?php $event = \thebuggenie\core\framework\Event::createNew('core', 'project_sidebar_links')->trigger(array('submenu' => $submenu)); ?>
 <?php foreach ($event->getReturnList() as $menuitem): ?>
     <li><?php echo link_tag($menuitem['url'], $menuitem['title'], array('title' => $menuitem['title'])); ?></li>

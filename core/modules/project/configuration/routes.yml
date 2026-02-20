@@ -394,6 +394,13 @@ project_files:
     parameters: [ ]
     csrf_enabled: false
 
+project_hours:
+    route: '/:project_key/hours/*'
+    module: project
+    action: hours
+    parameters: [ ]
+    csrf_enabled: false
+
 project_roadmap_upcoming:
     route: /:project_key/roadmap/upcoming
     module: project

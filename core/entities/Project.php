@@ -5,6 +5,8 @@
     use thebuggenie\core\entities\common\QaLeadable,
         thebuggenie\core\helpers\MentionableProvider,
         thebuggenie\core\framework;
+    use thebuggenie\core\entities\tables\Issues;
+    use thebuggenie\core\entities\tables\IssueSpentTimes;
     use thebuggenie\core\entities\tables\Projects;
     use thebuggenie\core\framework\Settings;
 
@@ -456,6 +458,12 @@
          * @var LogItem[][]
          */
         protected $_recent_activities = null;
+
+        /**
+         * Cache of computed hours series by date-window key
+         * @var array<string, array{series: array<int,array<int,float>>, user_ids: int[], issue_ids: int[]}>
+         */
+        protected $_hoursbyuserissue = [];
 
         /**
          * Whether to show a "Download" link and corresponding section
@@ -2634,6 +2642,178 @@
         {
             $this->_populateStateCount();
             return $this->_statecount;
+        }
+
+        /**
+         * Build a stable cache key for an optional date range.
+         */
+        protected function _hoursKey(?string $from, ?string $to, ?array $users = []): string
+        {
+            return ($from ?: '-') . '|' . ($to ?: '-').'|'.join(',',$users);
+        }
+
+        /**
+         * Populate the hours-by-user-by-issue cache for the given window if missing.
+         *
+         * Returns:
+         *   [
+         *     'series'   => [ user_id => [ issue_id => hours_float ] ],
+         *     'user_ids' => [list of user ids present],
+         *     'issue_ids'=> [list of issue ids present]
+         *   ]
+         */
+
+        protected function _populateHoursByUserIssue(?\DateTimeInterface $from, ?\DateTimeInterface $to, ?array $users = []): void
+        {
+            $key = $this->_hoursKey($from->format('Y-m-d'), $to->format('Y-m-d'), $users);
+            if (isset($this->_hoursbyuserissue[$key])) return;
+
+            // ---- Build query: time entries joined to issues, filtered by this project ----
+            $t = IssueSpentTimes::getTable();  // ✅ tables\IssueSpentTimes
+            $q = $t->getQuery();
+
+            // Join issues so we can filter by project
+            $q->join(Issues::getTable(), Issues::ID, IssueSpentTimes::ISSUE_ID);
+            $q->where(Issues::PROJECT_ID, $this->getID());
+            $q->addOrderBy(IssueSpentTimes::EDITED_AT);
+
+            // Filter by users (use IN if multiple users are supplied)
+            if (!empty($users)) {
+                // Prefer a single IN criterion rather than AND-ing equals on the same column
+                $q->where(IssueSpentTimes::EDITED_BY, $users, \b2db\Criterion::IN);
+            }
+
+            // Date fence (inclusive). Use the best available timestamp column on your table.
+            // If your schema has SPENT_AT (preferred) use that constant instead of EDITED_AT below.
+            if ($from) $q->where(IssueSpentTimes::EDITED_AT, $from->format('U'), \b2db\Criterion::GREATER_THAN_EQUAL);
+            if ($to)   $q->where(IssueSpentTimes::EDITED_AT,   $to->format('U'), \b2db\Criterion::LESS_THAN_EQUAL);
+
+            $mentionable = $this->getMentionableUsers(); // [id => User]
+
+            $series       = [];           // [uid => [iid => hours]]
+            $userIds      = [];           // [uid => User] (preserve your current structure)
+            $issueIds     = [];           // [iid => true]
+            $issueNames   = [];           // [iid => Issue]
+            $totalsByDay  = [];           // NEW: ['YYYY-MM-DD' => hours]
+            $rowsWithDate = [];           // NEW: [['uid'=>..,'iid'=>..,'date'=>'YYYY-MM-DD','hours'=>..], ...]
+
+            if ($rows = $t->rawSelect($q)) {
+                while ($r = $rows->getNextRow()) {
+                    $uid = (int)$r[IssueSpentTimes::EDITED_BY];
+                    $iid = (int)$r[IssueSpentTimes::ISSUE_ID];
+
+                    // Pick the most accurate timestamp column you have for "work happened on"
+                    // Prefer SPENT_AT; fall back to EDITED_AT if SPENT_AT doesn't exist.
+                    $ts = null;
+                    if (defined('IssueSpentTimes::SPENT_AT') && isset($r[IssueSpentTimes::EDITED_AT])) {
+                        $ts = (int)$r[IssueSpentTimes::EDITED_AT];
+                    } else {
+                        $ts = (int)$r[IssueSpentTimes::EDITED_AT];
+                    }
+
+                    // Normalize to YYYY-MM-DD (UTC). If you need project/user timezone,
+                    // convert here before formatting.
+                    $day = gmdate('Y-m-d', $ts);
+
+                    // Convert: hours are hundredths; minutes are minutes
+                    $hours = ((float)$r[IssueSpentTimes::SPENT_HOURS] / 100.0)
+                        + ((float)$r[IssueSpentTimes::SPENT_MINUTES] / 60.0);
+
+                    // Aggregate User x Issue (existing behavior)
+                    $series[$uid][$iid] = ($series[$uid][$iid] ?? 0.0) + $hours;
+
+                    // NEW: per-day totals
+                    $totalsByDay[$day] = ($totalsByDay[$day] ?? 0.0) + $hours;
+
+                    // NEW: detailed row with date for client-side filtering
+                    $rowsWithDate[] = [
+                        'uid'   => $uid,
+                        'iid'   => $iid,
+                        'date'  => $day,
+                        'hours' => $hours,
+                    ];
+
+                    // Carry forward your user/issue lookups
+                    if (isset($mentionable[$uid])) {
+                        $userIds[$uid] = $mentionable[$uid];
+                    }
+                    $issueIds[$iid] = true;
+
+                    // Keep your Issue object caching as-is
+                    if (!isset($issueNames[$iid])) {
+                        $issueNames[$iid] = new Issue($r->get(tables\Issues::ID), $r);
+                    }
+                }
+            }
+
+            // Sort day totals chronologically (optional but makes the chart look nicer)
+            if (!empty($totalsByDay)) {
+                ksort($totalsByDay);
+            }
+
+            $this->_hoursbyuserissue[$key] = [
+                'series'      => $series,
+                'user_ids'    => array_keys($userIds),
+                'users'       => $userIds,
+                'issue_ids'   => array_keys($issueIds),
+                'issues'      => $issueNames,
+                'from'        => $from->format('Y-m-d'),
+                'to'          => $to->format('Y-m-d'),
+
+                // NEW: expose day grouping + dated rows to the template
+                'totalsByDay'  => $totalsByDay,
+                'rowsWithDate' => $rowsWithDate,
+            ];
+        }
+
+
+        /**
+         * Public getter: returns the aggregated series + id lists.
+         *
+         * @return array{series: array<int,array<int,float>>, user_ids: int[], issue_ids: int[]}
+         */
+        public function getHoursByUserAndIssue(?string $from = null, ?string $to = null, ?array $users): array
+        {
+            if(!$to){
+                $to = new \DateTime();
+            }else{
+                $to = \DateTime::createFromFormat('Y-m-d', $to);
+            }
+            if(!$from){
+                $from = clone $to;
+                $from->sub(new \DateInterval('P30D'));
+            }else{
+                $from = \DateTime::createFromFormat('Y-m-d', $from);
+            }
+            $key = $this->_hoursKey($from->format('Y-m-d'), $to->format('Y-m-d'), $users);
+            $this->_populateHoursByUserIssue($from, $to, $users);
+
+            return $this->_hoursbyuserissue[$key];
+        }
+
+        /**
+         * Optional convenience getters
+         */
+        public function getTotalHoursByUser(?string $from = null, ?string $to = null): array
+        {
+            $data = $this->getHoursByUserAndIssue($from, $to);
+            $totals = [];
+            foreach ($data['series'] as $uid => $perIssue) {
+                $totals[$uid] = array_sum($perIssue);
+            }
+            return $totals;
+        }
+
+        public function getTotalHoursByIssue(?string $from = null, ?string $to = null): array
+        {
+            $data = $this->getHoursByUserAndIssue($from, $to);
+            $totals = [];
+            foreach ($data['series'] as $uid => $perIssue) {
+                foreach ($perIssue as $iid => $h) {
+                    $totals[$iid] = ($totals[$iid] ?? 0.0) + $h;
+                }
+            }
+            return $totals;
         }
 
         protected function _populateRecentIssues($issuetype)

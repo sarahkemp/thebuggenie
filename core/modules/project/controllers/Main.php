@@ -65,6 +65,55 @@ class Main extends helpers\ProjectActions
 
     }
 
+    public function runHours(framework\Request $request)
+    {
+        $project = \thebuggenie\core\framework\Context::getCurrentProject();
+
+        // Accept optional date range (if you expose filters in the tile)
+        $req  = framework\Context::getRequest();
+        $from = $req->getParameter('from');   // 'YYYY-MM-DD' or null
+        $to   = $req->getParameter('to');
+        $usersIn = $request->getParameter('users'); // can be null|string|array
+
+        // Normalize users -> array<int>
+        $selectedUserIds = [];
+        if (is_array($usersIn)) {
+            $selectedUserIds = array_map('intval', array_filter($usersIn, 'strlen'));
+        } elseif (is_string($usersIn) && $usersIn !== '') {
+            $selectedUserIds = array_map('intval', array_filter(array_map('trim', explode(',', $usersIn)), 'strlen'));
+        }
+
+
+        // 1) Get aggregated series from the Project helper you added earlier
+        $data = $project->getHoursByUserAndIssue($from, $to, $selectedUserIds);
+
+        // 5) Expose to template
+        $this->series       = $data['series'];
+        $this->users        = $data['users'];
+        $this->issues       = $data['issues'];
+        $this->fromStr      = $data['from'];
+        $this->toStr        = $data['to'];
+
+        // NEW for the Highcharts template
+        $this->totalsByDay  = $data['totalsByDay'];
+        $this->rowsWithDate = $data['rowsWithDate'];
+
+        $this->selectedUserIds   = $selectedUserIds;
+        // Build selected user names without arrow functions
+        $selectedUserNames = [];
+        foreach ($selectedUserIds as $uid) {
+            if (isset($this->users[$uid])) {
+                // $this->users[$uid] is a UserEntity; call getName()
+                $selectedUserNames[] = $this->users[$uid]->getName();
+            } else {
+                $selectedUserNames[] = 'User #'.$uid;
+            }
+        }
+        $this->selectedUserNames = $selectedUserNames;
+
+
+    }
+
     /**
      * The project roadmap page
      *
