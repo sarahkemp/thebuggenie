@@ -46,6 +46,7 @@ public/.user.ini
 
 # Ignore local log file.
 thebuggenie.log
+thebuggenie.log.*
 
 # Ignore user-specific Vagrant files.
 .vagrant
