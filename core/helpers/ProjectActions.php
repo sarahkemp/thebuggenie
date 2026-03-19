@@ -69,7 +69,6 @@
                 {
                     $_SESSION['viewissue_list'] = array();
                 }
-
                 $k = array_search($issue->getID(), $_SESSION['viewissue_list']);
                 if ($k !== false)
                     unset($_SESSION['viewissue_list'][$k]);

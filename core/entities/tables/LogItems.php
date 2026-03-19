@@ -126,32 +126,91 @@
         {
             $retarr = array();
 
-            for ($cc = 15; $cc >= 0; $cc--)
-            {
+            // Fixed TZ: America/Los_Angeles
+            $tzLA  = new \DateTimeZone('America/Los_Angeles');
+            $tzUTC = new \DateTimeZone('UTC');
+
+            // LA "today" at midnight
+            $todayLA = new \DateTime('today', $tzLA);
+
+            // These are the constants the code expects; log them so we know the numeric values in *your* install
+            $CT_CREATED = LogItem::ACTION_ISSUE_CREATED;
+            $CT_CLOSED  = LogItem::ACTION_ISSUE_CLOSE;
+
+            // TEMP: log the constant values once
+            error_log(sprintf('[proj:%d] CT_CREATED=%s CT_CLOSED=%s', $project_id, (string)$CT_CREATED, (string)$CT_CLOSED));
+
+            for ($cc = 30; $cc >= 0; $cc--) {
+
+                // LA-local day bounds (midnight → next midnight)
+                $startLA = (clone $todayLA)->modify('-' . $cc . ' days')->setTime(0, 0, 0);
+                $endLA   = (clone $startLA)->modify('+1 day');
+
+                // Convert to UTC **seconds** (DB stores seconds per your screenshot)
+                $startUtcSec = (clone $startLA)->setTimezone($tzUTC)->getTimestamp();
+                $endUtcSec   = (clone $endLA)->setTimezone($tzUTC)->getTimestamp();
+
+                // --- DIAG #1: total rows for the project in this window (no change_type filter) ---
+                $qAll = $this->getQuery();
+                $qAll->where('log.project_id', $project_id);
+                $qAll->where(self::SCOPE, \thebuggenie\core\framework\Context::getScope()->getID());
+                $qAll->where(self::TIME, $startUtcSec, Criterion::GREATER_THAN_EQUAL);
+                $qAll->where(self::TIME, $endUtcSec,   Criterion::LESS_THAN);   // half-open
+                $totalRows = 0;
+                if ($resAll = $this->rawSelect($qAll)) {
+                    while ($resAll->getNextRow()) { $totalRows++; }
+                }
+
+                // --- Main query with change_type filter (created/closed only) ---
                 $query = $this->getQuery();
-                $query->join(Issues::getTable(), Issues::ID, self::TARGET, array(array(Issues::PROJECT_ID, $project_id), array(Issues::DELETED, false)));
-                $query->where(self::CHANGE_TYPE, array(LogItem::ACTION_ISSUE_CREATED, LogItem::ACTION_ISSUE_CLOSE), Criterion::IN);
+                $query->join(
+                    Issues::getTable(),
+                    Issues::ID,
+                    self::TARGET,
+                    [
+                        [Issues::PROJECT_ID, $project_id],
+                        [Issues::DELETED, false]
+                    ]
+                );
+                $query->where(self::CHANGE_TYPE, [$CT_CREATED, $CT_CLOSED], Criterion::IN);
                 $query->where(self::TARGET_TYPE, LogItem::TYPE_ISSUE);
                 $query->where(Issues::DELETED, false);
                 $query->where('log.project_id', $project_id);
-                $query->where(self::SCOPE, framework\Context::getScope()->getID());
-                $query->where(self::TIME, NOW - (86400 * ($cc + 1)), Criterion::GREATER_THAN_EQUAL);
-                $query->where(self::TIME, NOW - (86400 * $cc), Criterion::LESS_THAN_EQUAL);
+                $query->where(self::SCOPE, \thebuggenie\core\framework\Context::getScope()->getID());
+                $query->where(self::TIME, $startUtcSec, Criterion::GREATER_THAN_EQUAL);
+                $query->where(self::TIME, $endUtcSec,   Criterion::LESS_THAN); // half-open
 
-                $closed_count = array();
-                $open_count = array();
+                $closed_set = [];
+                $open_set   = [];
+                $createdCount = $closedCount = 0;
+
                 if ($res = $this->rawSelect($query)) {
                     while ($row = $res->getNextRow()) {
-                        if ($row[self::CHANGE_TYPE] == LogItem::ACTION_ISSUE_CLOSE) {
-                            $closed_count[$row->get(self::TARGET)] = true;
-                        } else {
-                            $open_count[$row->get(self::TARGET)] = true;
+                        $ct = $row[self::CHANGE_TYPE];
+                        if ($ct == $CT_CLOSED) {
+                            $closed_set[$row->get(self::TARGET)] = true;
+                            $closedCount++;
+                        } elseif ($ct == $CT_CREATED) {
+                            $open_set[$row->get(self::TARGET)] = true;
+                            $createdCount++;
                         }
                     }
                 }
-                $retarr[0][$cc] = count($closed_count);
-                $retarr[1][$cc] = count($open_count);
+
+                $retarr[0][$cc] = count($closed_set); // closed
+                $retarr[1][$cc] = count($open_set);   // opened
+
+                // ---- DIAG #2: per-day summary ----
+                error_log(sprintf(
+                    '[proj:%d] %s LA  start=%d end=%d  totalRows=%d  createdRows=%d  closedRows=%d  uniqueClosed=%d  uniqueOpened=%d',
+                    $project_id,
+                    $startLA->format('Y-m-d'),
+                    $startUtcSec, $endUtcSec,
+                    $totalRows, $createdCount, $closedCount,
+                    $retarr[0][$cc], $retarr[1][$cc]
+                ));
             }
+
             return $retarr;
         }
 
