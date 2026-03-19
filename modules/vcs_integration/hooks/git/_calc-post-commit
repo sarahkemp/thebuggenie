@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# change this variables to fit your project dir structure
+tbg_project_id=1
+tbg_install_dir="/var/www/bugs/"
+
+
+# don't change
+commit_current=`git log -n 1  --format=%H -1`
+commit_parent=`git log -n 1  --format=%H $commit_current^`
+tbg_hook_path="$tbg_install_dir/modules/vcs_integration/hooks/git"
+cat $tbg_hook_path/tbg-post-receive | sed '/^projectid*/ s/^/#/' | sed  '/^tbg_cli_path*/ s/^/#/' > /tmp/.hook_temp
+projectid=$tbg_project_id
+tbg_cli_path=$tbg_install_dir
+source /tmp/.hook_temp $commit_parent $commit_current
+rm /tmp/.hook_temp
